@@ -1,0 +1,217 @@
+<html><head><title>The Popular Events</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.5.6/vue.js"></script>
+<script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.19.2/moment.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js"></script>
+<script>
+var googleapikey = '{{ googleapikey }}';
+</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/meyer-reset/2.0/reset.min.css" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% verbatim %}
+<script>
+$(function() {
+function pad(n, width, z) {
+z = z || '0';
+n = n + '';
+return n.length >= width ? n : new Array(width - n.length + 1).join(z) + n;
+}
+Vue.component('calendar', {
+props: ['searchSettings', 'month', 'yearAndMonth', 'dayOfWeek', 'lastDayOfMonthDayOfWeek', 'dayOfMonth', 'endOfMonth', 'eventsByDay'],
+computed: {
+  numberOfRows: function() {
+    return Math.ceil((this.endOfMonth - this.dayOfMonth + this.dayOfWeek + 1) / 7);
+  }
+},
+methods: {
+range: function(start, end, step=1) {
+return _.range(start, end, step);
+},
+getDate: function(dayOfMonth) {
+// append 0 to dayOfMonth
+return this.yearAndMonth.format('YYYY-')+this.yearAndMonth.format('MM-')+pad(dayOfMonth, 2);
+}
+},
+template: `<div><h2>{{ month }}</h2>
+<table>
+<tr><th>Sunday</th><th>Monday</th><th>Tuesday</th><th>Wednesday</th>
+<th>Thursday</th><th>Friday</th><th>Saturday</th></tr>
+<tr v-for="vertical_i in range(numberOfRows)">
+<template v-if="vertical_i == 0">
+<td v-for="i in range(dayOfWeek)"></td>
+<calendar-cell v-for="i in range(7-dayOfWeek)" v-bind:search-settings="searchSettings" v-bind:year-and-month="yearAndMonth" v-bind:day-of-month="dayOfMonth + i" v-bind:eventsByDay="eventsByDay" key="vertical_i + ',' + i"></calendar-cell>
+</template>
+<template v-else-if="vertical_i == (numberOfRows - 1)">
+<calendar-cell v-for="i in range(lastDayOfMonthDayOfWeek+1)" v-bind:search-settings="searchSettings" v-bind:year-and-month="yearAndMonth" v-bind:day-of-month="i + (endOfMonth - lastDayOfMonthDayOfWeek)" v-bind:eventsByDay="eventsByDay" key="vertical_i + ',' + i"></calendar-cell>
+<td v-for="i in range(0, 7-lastDayOfMonthDayOfWeek-1)"></td>
+</template>
+<template v-else>
+<calendar-cell v-for="i in range(7)" v-bind:search-settings="searchSettings" v-bind:year-and-month="yearAndMonth"  v-bind:day-of-month="(vertical_i) * 7 + i + (dayOfMonth - dayOfWeek)" v-bind:eventsByDay="eventsByDay" key="vertical_i + ',' + i"></calendar-cell>
+
+</template>
+</tr>
+</table></div>`
+})
+settingsMixin = {methods: {
+  hasFood: function(description) {
+    items = ['food', 'happy hour', 'snacks', 'appetizer']
+    returnTrue = false;
+    $.each(items, function(i, item) {
+      try {
+      if (description.toLowerCase().indexOf(item) > -1) {
+        returnTrue = true;
+      }} catch(err) {}
+    })
+    return returnTrue;
+  }
+}}
+Vue.component('event-info', {
+  mixins: [settingsMixin],
+  props: ['event'],
+  template: '<span>{{ event.yes_rsvp_count }} attending "<a target="_blank" v-bind:href="event.link">{{ event.group.name }}: {{ event.name }}</a>" at {{ event.local_time }}<template v-if="event.venue"> in {{ event.venue.city }}</template> ({{ hasFood(event.description) ? "food" : "no food" }})</span>'
+})
+Vue.component('calendar-cell', {
+// The todo-item component now accepts a
+// "prop", which is like a custom attribute.
+// This prop is called todo.
+mixins: [settingsMixin],
+props: ['searchSettings', 'dayOfMonth', 'eventsByDay', 'yearAndMonth'],
+methods: {
+range: function(start, end, step=1) {
+return _.range(start, end, step);
+},
+getDate: function(dayOfMonth) {
+// append 0 to dayOfMonth
+return this.yearAndMonth.format('YYYY-')+this.yearAndMonth.format('MM-')+pad(dayOfMonth, 2);
+},
+shouldShow: function(event) {
+  if (this.searchSettings.mustHaveFood) {
+    if (this.hasFood(event.description)) {
+      return true
+    } else {
+      return false
+    }
+  } else {
+    return true
+  }
+}
+},
+template: '<td><strong>{{ dayOfMonth }}</strong><br/><br/> <ul><li v-for="event in eventsByDay[getDate(dayOfMonth)]" v-if="shouldShow(event)"><event-info v-bind:event="event"></event-info></li></ul></td>'
+})
+var app = new Vue({
+el: '#app',
+data: {
+  searchSettings: {mustHaveFood: false},
+currentMonth: moment().format('MMMM'),
+yearAndMonth: moment(),
+nextYearAndMonth: moment().add(1, 'months'),
+nextMonth: moment().add(1, 'months').format('MMMM'),
+dayOfWeek: moment().day(),
+nextMonthDayOfWeek: moment().add(1, 'months').startOf('month').day(),
+lastDayOfMonthDayOfWeek: moment().endOf('month').day(),
+nextMonthLastDayOfMonthDayOfWeek: moment().add(1, 'months').endOf('month').day(),
+dayOfMonth: moment().date(),
+endOfMonth: moment().endOf('month').date(),
+nextMonthEndOfMonth: moment().add(1, 'months').startOf('month').endOf('month').date(),
+eventsByDay: {},
+topTenEvents: [],
+usersPosition: {},
+usersCity: '',
+radius: 20,
+isMobile: $(window).width() < 600,
+},
+created: function() {
+  navigator.geolocation.getCurrentPosition(this.setUsersPosition)
+
+},
+methods: {
+  setUsersPosition: function(position) {
+    this.usersPosition = {'lat': position.coords.latitude, 'lng': position.coords.longitude}
+    $.get('https://maps.googleapis.com/maps/api/geocode/json?latlng='+this.usersPosition.lat+','+this.usersPosition.lng+'&key='+googleapikey, function(data) {
+      app.usersCity = data['results'][0]['formatted_address'];
+      app.search();
+    })
+  },
+  search: function() {
+    app.eventsByDay = {};
+    app.topTenEvents = [];
+    $.get('https://maps.googleapis.com/maps/api/geocode/json?address='+app.usersCity, function(data) {
+      app.usersPosition = data.results[0].geometry.location;
+      $.get('/get_events/?radius='+$('#radius option:selected').text()+'&lat='+app.usersPosition.lat+'&lng='+app.usersPosition.lng, function(data) {
+      app.eventsByDay = data.most_popular_events_per_day;
+      app.topTenEvents = data.top_ten_events;
+      app.topTenEventsWithFood = data.top_ten_events_with_food;
+      })
+    })
+
+  }
+}
+})
+})
+
+</script>
+<style>
+body {
+  font:1.25em sans-serif;
+  margin:0 10px 10px 10px;
+}
+th, strong {font-weight:bold}
+h1 {font-size:2em;font-weight:bold;}
+h2 {font-size:1.5em;font-weight:bold;}
+
+h3 {font-size:1.25em;font-weight:bold;}
+h1, h2 {margin:10px 0;}
+th, td {
+vertical-align:top;
+border:1px solid #000;
+padding:5px;
+}
+table {
+border-collapse:collapse;
+width:100%;
+}
+p {
+  margin:0;
+}
+#users-address {
+  width:400px;
+}
+ul {
+  list-style:square;
+  margin-left:20px;
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<h1>The Popular Events</h1>
+  <p>This app makes it easy to find popular events listed on meetup.com. See the <a href="https://github.com/pythonwebcoder/thepopularevents" target="_blank">source code</a>.</p>
+Your address or city/state: <input id="users-address" type="text" v-model="usersCity" @keyup.enter="search" /> Miles: <select id="radius" v-model="radius"><option v-for="m in [5,10,15,20]">{{ m }}</option></select>
+Must have food: <input type="checkbox" v-model="searchSettings.mustHaveFood" /> <button v-on:click="search">Search</button>
+<template v-if="topTenEvents.length > 0">
+
+<h2>Top Ten Events</h2>
+<ul v-if="searchSettings.mustHaveFood">
+<li v-for="event in topTenEventsWithFood">On {{ event.local_date }}: <event-info v-bind:event="event"></event-info></li>
+</ul>
+<ul v-else>
+<li v-for="event in topTenEvents">On {{ event.local_date }}: <event-info v-bind:event="event"></event-info></li>
+</ul>
+<template v-if="isMobile">
+  <template v-for="date in Object.keys(eventsByDay).sort()">
+    <h3>{{ date }}</h3>
+    <ul>
+<li v-for="event in eventsByDay[date]"><event-info v-bind:event="event"></event-info></li>
+    </ul>
+  </template>
+</template>
+<template v-else>
+<calendar v-bind:search-settings="searchSettings" v-bind:month="currentMonth" v-bind:year-and-month="yearAndMonth" v-bind:day-of-week="dayOfWeek" v-bind:last-day-of-month-day-of-week="lastDayOfMonthDayOfWeek" v-bind:day-of-month="dayOfMonth" v-bind:end-of-month="endOfMonth" v-bind:events-by-day="eventsByDay"></calendar>
+<calendar v-bind:search-settings="searchSettings" v-bind:month="nextMonth" v-bind:year-and-month="nextYearAndMonth" v-bind:day-of-week="nextMonthDayOfWeek" v-bind:last-day-of-month-day-of-week="nextMonthLastDayOfMonthDayOfWeek" v-bind:day-of-month="1" v-bind:end-of-month="nextMonthEndOfMonth" v-bind:events-by-day="eventsByDay"></calendar>
+</template>
+</template>
+<template v-else><p>Loading top ten list and calendars</p></template>
+{% endverbatim %}
+</div>
+</body></html>
