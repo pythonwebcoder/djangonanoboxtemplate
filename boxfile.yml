@@ -12,7 +12,7 @@ data.db:
 web.main:
   start:
     nginx: nginx -c /app/etc/nginx.conf
-    django: gunicorn -c /app/etc/gunicorn.py thepopularevents.wsgi
+    django: gunicorn -c /app/etc/gunicorn.py {{ project_name }}.wsgi
 deploy.config:
   before_live:
     web.main:
